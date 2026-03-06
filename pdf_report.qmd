@@ -1,0 +1,116 @@
+---
+title: "Data Test Report"
+author: "PEGASUS DACS"
+format: pdf
+execute:
+  echo: false
+  warning: false
+  message: false
+  kernel: python3
+  jupyter: python3
+params:
+  mission_id: "PEG_johannes_test_3_04_03_26"
+---
+
+
+```{python}
+#| include: false
+
+import sys
+print(sys.executable)
+print(sys.path)
+
+
+import os
+from dotenv import load_dotenv
+import matplotlib.pyplot as plt
+import pandas as pd
+from IPython.display import Markdown, display
+
+from src.db import connect, get_series_by_subsystem #, get_metadata
+
+import sys
+print(sys.executable)
+print(sys.path)
+
+load_dotenv()
+
+URL    = os.environ["INFLUX_URL"]
+TOKEN  = os.environ["INFLUX_TOKEN"]
+ORG    = os.environ["INFLUX_ORG"]
+BUCKET = os.environ["INFLUX_BUCKET"]
+
+client = connect(URL, TOKEN, ORG)
+
+try:
+    mission_id = params["mission_id"]
+except NameError:
+    mission_id = "PEG_johannes_test_3_04_03_26"  # Fallback für direktes Ausführen
+
+if not mission_id:
+    raise RuntimeError("Pass mission_id via: quarto render report.qmd -P mission_id:FIRING_...")
+
+# meta, START, END = get_metadata(client, BUCKET, mission_id)
+
+SUBSYSTEMS = ["FSS", "OSS", "IGN", "ENG", "INJ", "VAR"]
+
+# >>> Falls Massflow anders heißt, hier ändern <<<
+CATEGORIES = [
+    ("Massflow",        ("massflowSensor", "Massflow [g/s]")),   # measurement, field
+    ("Loadcell",        ("loadcell", "Weight [KG]")),  # optional: weight
+    ("Pressure Sensor", ("pressureSensor", "Pressure [bar]")),  # optional: dynamic_pressure
+    ("Thermocouple",    ("temperatureSensor", "Temperature [°C]")),
+]
+
+def plot_by_sensor(df, title, ylabel):
+    if df.empty:
+        return
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for sid, group in df.groupby("sensorId"):
+        ax.plot(group["time"], group["value"], label=str(sid))
+    ax.legend()
+    ax.set_title(title)
+    ax.set_xlabel("Time")
+    ax.set_ylabel(ylabel)
+    ax.grid(True)
+    fig.tight_layout()
+    plt.show()
+```
+
+```{python}
+flux = f'''
+from(bucket: "{BUCKET}")
+  |> range(start: -7d)
+  |> filter(fn: (r) => r._measurement == "loadcell")
+  |> limit(n: 3)
+'''
+result = client.query_api().query_data_frame(flux)
+df = pd.concat(result, ignore_index=True)
+print(df[["mission_id", "subsystem", "_field", "sensorId"]].head(10))
+```
+
+```{python}
+#| echo: false
+for i, subsystem in enumerate(SUBSYSTEMS):
+    # Prüfe ob dieses Subsystem irgendwelche Daten hat
+    has_data = False
+    subsystem_data = {}
+    for cat_name, (measurement, ylabel) in CATEGORIES:
+        df = get_series_by_subsystem(client, BUCKET, measurement, mission_id, subsystem)
+        subsystem_data[cat_name] = (df, ylabel)
+        if not df.empty:
+            has_data = True
+    
+    if not has_data:
+        continue  # Subsystem komplett überspringen
+    
+    if i > 0:
+        display(Markdown(r"\newpage"))
+    display(Markdown(f"# Subsystem: {subsystem}"))
+
+    for cat_name, (df, ylabel) in subsystem_data.items():
+        if df.empty:
+            continue  # Kategorie ohne Daten auch überspringen
+        display(Markdown(f"## {cat_name}"))
+        plot_by_sensor(df, f"{subsystem} – {cat_name}", ylabel)
+```

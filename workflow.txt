@@ -1,0 +1,23 @@
+# General
+Man kann auch im Visual Mode editieren, wo man dann einfacher (ohne die genauen Befehle zu kennen) sachen hinzufügen kann.
+Hier eine gute Übersicht: https://quarto.org/docs/guide
+
+
+1. Starte mit der Struktur des yamls, die ganzen Dokument Spezifikationen:
+Für optionen bei PDF siehe https://quarto.org/docs/reference/formats/pdf.html
+
+---
+title: 
+author:
+date:
+format:
+---
+
+2. Content Stucture mit Markdown
+Siehe hier, was man mit Markdown alles machen kann: https://quarto.org/docs/authoring/markdown-basics.html
+
+3. Code
+For code always use:
+'''{python, r, julia}
+
+'''
