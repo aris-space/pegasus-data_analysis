@@ -19,7 +19,7 @@ def query_df(client, flux):
 def get_series_by_subsystem(client, bucket, measurement, mission_id, subsystem):
     flux = f'''
 from(bucket: "{bucket}")
-  |> range(start: -7d)
+  |> range(start: -30d)
   |> filter(fn: (r) => r._measurement == "{measurement}")
   |> filter(fn: (r) => r.mission_id == "{mission_id}")
   |> filter(fn: (r) => r.subsystem == "{subsystem}")

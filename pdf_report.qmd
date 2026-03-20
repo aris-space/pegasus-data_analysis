@@ -1,7 +1,7 @@
 ---
 title: "Data Test Report"
 author: "PEGASUS DACS"
-format: pdf
+format: html
 execute:
   echo: false
   warning: false
@@ -33,6 +33,8 @@ import sys
 print(sys.executable)
 print(sys.path)
 
+
+# .env datei laden mit richtigen parametern für connection
 load_dotenv()
 
 URL    = os.environ["INFLUX_URL"]
@@ -42,6 +44,7 @@ BUCKET = os.environ["INFLUX_BUCKET"]
 
 client = connect(URL, TOKEN, ORG)
 
+# Hole den Parameter aus dem YAML ganz oben
 try:
     mission_id = params["mission_id"]
 except NameError:
@@ -50,18 +53,23 @@ except NameError:
 if not mission_id:
     raise RuntimeError("Pass mission_id via: quarto render report.qmd -P mission_id:FIRING_...")
 
-# meta, START, END = get_metadata(client, BUCKET, mission_id)
+# comment: meta, START, END = get_metadata(client, BUCKET, mission_id)
 
+
+
+# Alle Subsystems die geplotted werden sollen
 SUBSYSTEMS = ["FSS", "OSS", "IGN", "ENG", "INJ", "VAR"]
 
-# >>> Falls Massflow anders heißt, hier ändern <<<
+
+# (<Kategoriename>, (<Name measurement in DB>, <Y-Achsenbeschriftung>))
 CATEGORIES = [
-    ("Massflow",        ("massflowSensor", "Massflow [g/s]")),   # measurement, field
-    ("Loadcell",        ("loadcell", "Weight [KG]")),  # optional: weight
+    ("Massflow", ("massflowSensor", "Massflow [g/s]")),   # measurement, field
+    ("Loadcell", ("loadcell", "Weight [KG]")),  # optional: weight
     ("Pressure Sensor", ("pressureSensor", "Pressure [bar]")),  # optional: dynamic_pressure
-    ("Thermocouple",    ("temperatureSensor", "Temperature [°C]")),
+    ("Thermocouple", ("temperatureSensor", "Temperature [°C]")),
 ]
 
+# Funktion zum Plotten der Daten pro Sensor
 def plot_by_sensor(df, title, ylabel):
     if df.empty:
         return
@@ -75,18 +83,6 @@ def plot_by_sensor(df, title, ylabel):
     ax.grid(True)
     fig.tight_layout()
     plt.show()
-```
-
-```{python}
-flux = f'''
-from(bucket: "{BUCKET}")
-  |> range(start: -7d)
-  |> filter(fn: (r) => r._measurement == "loadcell")
-  |> limit(n: 3)
-'''
-result = client.query_api().query_data_frame(flux)
-df = pd.concat(result, ignore_index=True)
-print(df[["mission_id", "subsystem", "_field", "sensorId"]].head(10))
 ```
 
 ```{python}
@@ -104,6 +100,7 @@ for i, subsystem in enumerate(SUBSYSTEMS):
     if not has_data:
         continue  # Subsystem komplett überspringen
     
+    # für jedes Subsystem eine neue Seite anfangen
     if i > 0:
         display(Markdown(r"\newpage"))
     display(Markdown(f"# Subsystem: {subsystem}"))
