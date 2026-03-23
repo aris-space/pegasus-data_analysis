@@ -1,15 +1,14 @@
 ---
 title: "Data Test Report"
 author: "PEGASUS DACS"
-format: html
+format: pdf
+jupyter: pegasus-venv
 execute:
   echo: false
   warning: false
   message: false
-  kernel: python3
-  jupyter: python3
 params:
-  mission_id: "PEG_johannes_test_3_04_03_26"
+  mission_id: "PEG_ENG1_INJ1_FSS_CF_Seq2-1"
 ---
 
 
@@ -27,7 +26,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from IPython.display import Markdown, display
 
-from src.db import connect, get_series_by_subsystem #, get_metadata
+from src.db import connect, get_series_by_subsystem, get_console_messages #, get_metadata
 
 import sys
 print(sys.executable)
@@ -48,7 +47,7 @@ client = connect(URL, TOKEN, ORG)
 try:
     mission_id = params["mission_id"]
 except NameError:
-    mission_id = "PEG_johannes_test_3_04_03_26"  # Fallback für direktes Ausführen
+    mission_id = "PEG_ENG1_INJ1_FSS_CF_Seq2-1"  # Fallback für direktes Ausführen
 
 if not mission_id:
     raise RuntimeError("Pass mission_id via: quarto render report.qmd -P mission_id:FIRING_...")
@@ -70,12 +69,21 @@ CATEGORIES = [
 ]
 
 # Funktion zum Plotten der Daten pro Sensor
-def plot_by_sensor(df, title, ylabel):
+def plot_by_sensor(df, title, ylabel, time_range=None, highlight_range=None):
     if df.empty:
         return
+    if time_range is not None:
+        start, end = time_range
+        df = df[(df["time"] >= start) & (df["time"] <= end)]
+        if df.empty:
+            return
     fig, ax = plt.subplots(figsize=(10, 4))
     for sid, group in df.groupby("sensorId"):
         ax.plot(group["time"], group["value"], label=str(sid))
+    # Add gray box for the actual sequence interval
+    if highlight_range is not None:
+        highlight_start, highlight_end = highlight_range
+        ax.axvspan(highlight_start, highlight_end, color='gray', alpha=0.3)
     ax.legend()
     ax.set_title(title)
     ax.set_xlabel("Time")
@@ -87,27 +95,80 @@ def plot_by_sensor(df, title, ylabel):
 
 ```{python}
 #| echo: false
-for i, subsystem in enumerate(SUBSYSTEMS):
-    # Prüfe ob dieses Subsystem irgendwelche Daten hat
-    has_data = False
-    subsystem_data = {}
-    for cat_name, (measurement, ylabel) in CATEGORIES:
-        df = get_series_by_subsystem(client, BUCKET, measurement, mission_id, subsystem)
-        subsystem_data[cat_name] = (df, ylabel)
-        if not df.empty:
-            has_data = True
-    
-    if not has_data:
-        continue  # Subsystem komplett überspringen
-    
-    # für jedes Subsystem eine neue Seite anfangen
-    if i > 0:
-        display(Markdown(r"\newpage"))
-    display(Markdown(f"# Subsystem: {subsystem}"))
 
-    for cat_name, (df, ylabel) in subsystem_data.items():
-        if df.empty:
-            continue  # Kategorie ohne Daten auch überspringen
-        display(Markdown(f"## {cat_name}"))
-        plot_by_sensor(df, f"{subsystem} – {cat_name}", ylabel)
+# Get console messages from db 
+df_console_messages = get_console_messages(client, BUCKET, mission_id)
+
+# Extract sequence name from df
+seq_rows = df_console_messages[df_console_messages["value"].str.startswith("[SEQ] Initiating")]
+seq_names = seq_rows["value"].str.extract(r"\[SEQ\] Initiating (.+)")[0].tolist()
+
+# Get sequence start and stop times
+seq_timestamps = df_console_messages[df_console_messages["value"].str.startswith("[SEQ]")]["time"].tolist()
+
+# Create combined_seq_times containing start, end, buffered start, and buffered end times as well as sequence names
+relative_buffer_time = 0.1
+combined_seq_times = []
+name_idx = 0
+for i in range(0, len(seq_timestamps) - 1, 2):
+    start = seq_timestamps[i]
+    end = seq_timestamps[i+1]
+    buffer = relative_buffer_time * (end - start)
+    start_buf = start - buffer
+    end_buf = end + buffer    
+    name = seq_names[name_idx] if name_idx < len(seq_names) else ""
+    combined_seq_times.append((start, end, start_buf, end_buf, name))
+    name_idx += 1
+
+# Plot data depending on if sequence is detected or not
+if combined_seq_times:
+    # Plot only the time interval of buffered sequence and indicate the sequence time interval
+    for start, end, start_buf, end_buf, name in combined_seq_times:
+        display(Markdown(f"**Sequence detected: {name}**  \nPlotting data for this sequence interval."))
+        for i, subsystem in enumerate(SUBSYSTEMS):
+            # Prüfe ob dieses Subsystem irgendwelche Daten hat
+            has_data = False
+            subsystem_data = {}
+            for cat_name, (measurement, ylabel) in CATEGORIES:
+                df = get_series_by_subsystem(client, BUCKET, measurement, mission_id, subsystem)
+                subsystem_data[cat_name] = (df, ylabel)
+                if not df.empty:
+                    has_data = True
+            
+            if not has_data:
+                continue  # Subsystem komplett überspringen
+            
+            # für jedes Subsystem eine neue Seite anfangen
+            if i > 0:
+                display(Markdown(r"\newpage"))
+            display(Markdown(f"# Subsystem: {subsystem}"))
+            for cat_name, (df, ylabel) in subsystem_data.items():
+                if df.empty:
+                    continue
+                display(Markdown(f"## {cat_name}"))
+                plot_by_sensor(df, f"{subsystem} – {cat_name}", ylabel, time_range=(start_buf, end_buf), highlight_range=(start, end))
+else:
+    # No sequence found: plot the whole time interval
+    display(Markdown("**No sequence is present in the data for this mission id. Plotting all available data.**"))
+    for i, subsystem in enumerate(SUBSYSTEMS):
+        has_data = False
+        subsystem_data = {}
+        for cat_name, (measurement, ylabel) in CATEGORIES:
+            df = get_series_by_subsystem(client, BUCKET, measurement, mission_id, subsystem)
+            subsystem_data[cat_name] = (df, ylabel)
+            if not df.empty:
+                has_data = True
+
+        if not has_data:
+            continue
+
+        if i > 0:
+            display(Markdown(r"\newpage"))
+        display(Markdown(f"# Subsystem: {subsystem}"))
+
+        for cat_name, (df, ylabel) in subsystem_data.items():
+            if df.empty:
+                continue
+            display(Markdown(f"## {cat_name}"))
+            plot_by_sensor(df, f"{subsystem} – {cat_name}", ylabel)
 ```

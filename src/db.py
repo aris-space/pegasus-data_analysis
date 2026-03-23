@@ -30,3 +30,16 @@ from(bucket: "{bucket}")
         return df
     return df.rename(columns={"_time": "time", "_value": "value"}).sort_values("time")
 
+# Get data from console messages
+def get_console_messages(client, bucket, mission_id):
+    flux = f'''
+from(bucket: "{bucket}")
+  |> range(start: -30d)
+  |> filter(fn: (r) => r._measurement == "consoleMessages")
+  |> filter(fn: (r) => r.mission_id == "{mission_id}")  
+  |> keep(columns: ["_time", "_value", "sensorId"])
+'''
+    df = query_df(client, flux)
+    if df.empty:
+        return df
+    return df.rename(columns={"_time": "time", "_value": "value"}).sort_values("time")
