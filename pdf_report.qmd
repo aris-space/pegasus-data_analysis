@@ -96,6 +96,12 @@ def plot_by_sensor(df, title, ylabel, time_range=None, highlight_range=None):
 ```{python}
 #| echo: false
 
+display(Markdown(f"## Mission ID: {mission_id}"))
+```
+
+```{python}
+#| echo: false
+
 # Get console messages from db 
 df_console_messages = get_console_messages(client, BUCKET, mission_id)
 
@@ -124,7 +130,7 @@ for i in range(0, len(seq_timestamps) - 1, 2):
 if combined_seq_times:
     # Plot only the time interval of buffered sequence and indicate the sequence time interval
     for start, end, start_buf, end_buf, name in combined_seq_times:
-        display(Markdown(f"**Sequence detected: {name}**  \nPlotting data for this sequence interval."))
+        display(Markdown(f"**Sequence detected: {name}**"))
         for i, subsystem in enumerate(SUBSYSTEMS):
             # Prüfe ob dieses Subsystem irgendwelche Daten hat
             has_data = False
