@@ -1,0 +1,206 @@
+---
+title: "Firing Test Report"
+author: "PEGASUS DACS"
+format: pdf
+jupyter: pegasus-venv
+execute:
+  echo: false
+  warning: false
+  message: false
+params:
+  mission_id: "PEG_ENG1_INJ1_Firing1"
+---
+
+```{python}
+#| include: false
+
+import sys
+print(sys.executable)
+print(sys.path)
+
+
+import os
+from dotenv import load_dotenv
+import matplotlib.pyplot as plt
+import pandas as pd
+from IPython.display import Markdown, display
+
+from src.db import connect, get_series_by_subsystem, get_console_messages #, get_metadata
+
+import sys
+print(sys.executable)
+print(sys.path)
+
+
+# .env datei laden mit richtigen parametern für connection
+load_dotenv()
+
+URL    = os.environ["INFLUX_URL"]
+TOKEN  = os.environ["INFLUX_TOKEN"]
+ORG    = os.environ["INFLUX_ORG"]
+BUCKET = os.environ["INFLUX_BUCKET"]
+
+client = connect(URL, TOKEN, ORG)
+
+# Hole den Parameter aus dem YAML ganz oben
+try:
+    mission_id = params["mission_id"]
+except NameError:
+    mission_id = "PEG_ENG1_INJ1_Firing1"  # Fallback für direktes Ausführen
+
+if not mission_id:
+    raise RuntimeError("Pass mission_id via: quarto render report.qmd -P mission_id:FIRING_...")
+
+# comment: meta, START, END = get_metadata(client, BUCKET, mission_id)
+
+
+
+# Alle Subsystems die geplotted werden sollen
+SUBSYSTEMS = ["FSS", "OSS", "IGN", "ENG", "INJ", "VAR"]
+
+
+# (<Kategoriename>, (<Name measurement in DB>, <Y-Achsenbeschriftung>))
+CATEGORIES = [
+    ("Massflow", ("massflowSensor", "Massflow [g/s]")),   # measurement, field
+    ("Loadcell", ("loadcell", "Weight [KG]")),  # optional: weight
+    ("Pressure Sensor", ("pressureSensor", "Pressure [bar]")),  # optional: dynamic_pressure
+    ("Thermocouple", ("temperatureSensor", "Temperature [°C]")),
+]
+
+# Funktion zum Plotten der Daten pro Sensor
+def plot_by_sensor(df, title, ylabel, time_range=None, highlight_range=None, events=None, x0_time=None):
+    if df.empty:
+        return
+
+    # Ensure datetime
+    df = df.copy()
+    df["time"] = pd.to_datetime(df["time"], errors="coerce")
+
+    if time_range is not None:
+        start, end = time_range
+        df = df[(df["time"] >= start) & (df["time"] <= end)]
+        if df.empty:
+            return
+
+    # Default zero point
+    if x0_time is None:
+        x0_time = df["time"].min()
+    x0_time = pd.to_datetime(x0_time)
+
+    # Relative time in seconds
+    df["t_rel_s"] = (df["time"] - x0_time).dt.total_seconds()
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for sid, group in df.groupby("sensorId"):
+        ax.plot(group["t_rel_s"], group["value"], label=str(sid))
+
+    # Sequence window (also relative)
+    if highlight_range is not None:
+        hs, he = highlight_range
+        hs_rel = (pd.to_datetime(hs) - x0_time).total_seconds()
+        he_rel = (pd.to_datetime(he) - x0_time).total_seconds()
+        ax.axvspan(hs_rel, he_rel, color="gray", alpha=0.3)
+
+    # Event lines (also relative)
+    if events is not None and not events.empty:
+        ev = events.copy()
+        ev["time"] = pd.to_datetime(ev["time"], errors="coerce")
+        ev["t_rel_s"] = (ev["time"] - x0_time).dt.total_seconds()
+        for _, evt in ev.iterrows():
+            t = evt["t_rel_s"]
+            label = str(evt["value"]).replace("[SEQ] ", "")
+            ax.axvline(t, color="black", linestyle="--", linewidth=0.9, alpha=0.7)
+            ax.text(t, 0.98, label, transform=ax.get_xaxis_transform(), rotation=90, va="top", ha="right", fontsize=7, alpha=0.85)
+
+    ax.set_xlabel("Time since sequence start [s]")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(True)
+    ax.legend()
+    fig.tight_layout()
+    plt.show()
+```
+
+```{python}
+#| echo: false
+
+# Get console messages from db 
+df_console_messages = get_console_messages(client, BUCKET, mission_id)
+
+# Extract only entries that indicate sequences
+seq_df = df_console_messages[df_console_messages["value"].str.startswith("[SEQ]")].copy()
+
+# Get date of test and display it along with mission id
+test_date = seq_df["time"].iloc[0].strftime("%Y-%m-%d")
+mission_id_tex = mission_id.replace("_", r"\_")
+display(
+    Markdown(rf"\begin{{center}}\textbf{{Mission ID:}} {mission_id_tex}, \textbf{{Test Date:}} {test_date}\end{{center}}"))
+
+# Manually configurable boundaries for plotting based on console messages
+START_MSG = "[SEQ] Firing Sequence initiated"
+END_MSG = "[SEQ] Firing Sequence complete"
+
+# Keep rows from first start match onward
+if START_MSG:
+    start_idx = seq_df.index[seq_df["value"].eq(START_MSG)]
+    if len(start_idx) > 0:
+        seq_df = seq_df.loc[start_idx[0]:]
+
+# Keep rows up to and including first end match
+if END_MSG:
+    end_idx = seq_df.index[seq_df["value"].eq(END_MSG)]
+    if len(end_idx) > 0:
+        seq_df = seq_df.loc[:end_idx[0]]
+
+# Create combined_seq_times df containing start, end, buffered start, and buffered end times for plotting
+relative_buffer_time = 0.1
+combined_seq_times = []
+
+start = seq_df.iloc[0]["time"]
+end = seq_df.iloc[-1]["time"]
+buffer = relative_buffer_time * (end - start)
+start_buf = start - buffer
+end_buf = end + buffer
+combined_seq_times.append((start, end, start_buf, end_buf))
+
+# Get other events within firing sequnces
+events_in_window = seq_df[(seq_df["time"] >= start) & (seq_df["time"] <= end)]
+```
+
+
+```{python}
+#| echo: false
+
+# Plot only the time interval of buffered sequence and indicate the sequence time interval
+for start, end, start_buf, end_buf in combined_seq_times:
+    for i, subsystem in enumerate(SUBSYSTEMS):
+        # Prüfe ob dieses Subsystem irgendwelche Daten hat
+        has_data = False
+        subsystem_data = {}
+        for cat_name, (measurement, ylabel) in CATEGORIES:
+            df = get_series_by_subsystem(client, BUCKET, measurement, mission_id, subsystem)
+            subsystem_data[cat_name] = (df, ylabel)
+            if not df.empty:
+                has_data = True
+        
+        if not has_data:
+            continue  # Subsystem komplett überspringen
+        
+        # für jedes Subsystem eine neue Seite anfangen
+        if i > 0:
+            display(Markdown(r"\newpage"))
+        display(Markdown(f"# Subsystem: {subsystem}"))
+        for cat_name, (df, ylabel) in subsystem_data.items():
+            if df.empty:
+                continue
+            display(Markdown(f"## {cat_name}"))
+            plot_by_sensor(
+                df,
+                f"{subsystem} – {cat_name}",
+                ylabel,
+                time_range=(start_buf, end_buf),
+                highlight_range=(start, end),
+                events=events_in_window,
+                x0_time=start
+            )
+```
