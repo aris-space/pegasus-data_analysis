@@ -14,12 +14,11 @@ def query_df(client, flux):
         return pd.concat(result, ignore_index=True)
     return result
 
-
-
+# Query data per subsystem
 def get_series_by_subsystem(client, bucket, measurement, mission_id, subsystem):
     flux = f'''
 from(bucket: "{bucket}")
-  |> range(start: -30d)
+  |> range(start: -7d)
   |> filter(fn: (r) => r._measurement == "{measurement}")
   |> filter(fn: (r) => r.mission_id == "{mission_id}")
   |> filter(fn: (r) => r.subsystem == "{subsystem}")
@@ -30,12 +29,26 @@ from(bucket: "{bucket}")
         return df
     return df.rename(columns={"_time": "time", "_value": "value"}).sort_values("time")
 
-# Get data from console messages
+# Query console messages
 def get_console_messages(client, bucket, mission_id):
     flux = f'''
 from(bucket: "{bucket}")
-  |> range(start: -30d)
+  |> range(start: -7d)
   |> filter(fn: (r) => r._measurement == "consoleMessages")
+  |> filter(fn: (r) => r.mission_id == "{mission_id}")  
+  |> keep(columns: ["_time", "_value", "sensorId"])
+'''
+    df = query_df(client, flux)
+    if df.empty:
+        return df
+    return df.rename(columns={"_time": "time", "_value": "value"}).sort_values("time")
+
+# Query massflows
+def get_massflows(client, bucket, mission_id):
+    flux = f'''
+from(bucket: "{bucket}")
+  |> range(start: -7d)
+  |> filter(fn: (r) => r._measurement == "massflowSensor")
   |> filter(fn: (r) => r.mission_id == "{mission_id}")  
   |> keep(columns: ["_time", "_value", "sensorId"])
 '''

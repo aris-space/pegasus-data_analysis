@@ -8,7 +8,7 @@ execute:
   warning: false
   message: false
 params:
-  mission_id: "PEG_ENG1_INJ1_Firing1"
+  mission_id: "PEG_ENG1_INJ1_Firing3"
 ---
 
 ```{python}
@@ -25,7 +25,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from IPython.display import Markdown, display
 
-from src.db import connect, get_series_by_subsystem, get_console_messages #, get_metadata
+from src.db import connect, get_series_by_subsystem, get_console_messages, get_massflows #, get_metadata
+from src.plotting_functions import plot_by_sensor, plot_total_massflow, plot_equivalence_ratio
 
 import sys
 print(sys.executable)
@@ -46,7 +47,7 @@ client = connect(URL, TOKEN, ORG)
 try:
     mission_id = params["mission_id"]
 except NameError:
-    mission_id = "PEG_ENG1_INJ1_Firing1"  # Fallback für direktes Ausführen
+    mission_id = "PEG_ENG1_INJ1_Firing3"  # Fallback für direktes Ausführen
 
 if not mission_id:
     raise RuntimeError("Pass mission_id via: quarto render report.qmd -P mission_id:FIRING_...")
@@ -66,59 +67,6 @@ CATEGORIES = [
     ("Pressure Sensor", ("pressureSensor", "Pressure [bar]")),  # optional: dynamic_pressure
     ("Thermocouple", ("temperatureSensor", "Temperature [°C]")),
 ]
-
-# Funktion zum Plotten der Daten pro Sensor
-def plot_by_sensor(df, title, ylabel, time_range=None, highlight_range=None, events=None, x0_time=None):
-    if df.empty:
-        return
-
-    # Ensure datetime
-    df = df.copy()
-    df["time"] = pd.to_datetime(df["time"], errors="coerce")
-
-    if time_range is not None:
-        start, end = time_range
-        df = df[(df["time"] >= start) & (df["time"] <= end)]
-        if df.empty:
-            return
-
-    # Default zero point
-    if x0_time is None:
-        x0_time = df["time"].min()
-    x0_time = pd.to_datetime(x0_time)
-
-    # Relative time in seconds
-    df["t_rel_s"] = (df["time"] - x0_time).dt.total_seconds()
-
-    fig, ax = plt.subplots(figsize=(10, 4))
-    for sid, group in df.groupby("sensorId"):
-        ax.plot(group["t_rel_s"], group["value"], label=str(sid))
-
-    # Sequence window (also relative)
-    if highlight_range is not None:
-        hs, he = highlight_range
-        hs_rel = (pd.to_datetime(hs) - x0_time).total_seconds()
-        he_rel = (pd.to_datetime(he) - x0_time).total_seconds()
-        ax.axvspan(hs_rel, he_rel, color="gray", alpha=0.3)
-
-    # Event lines (also relative)
-    if events is not None and not events.empty:
-        ev = events.copy()
-        ev["time"] = pd.to_datetime(ev["time"], errors="coerce")
-        ev["t_rel_s"] = (ev["time"] - x0_time).dt.total_seconds()
-        for _, evt in ev.iterrows():
-            t = evt["t_rel_s"]
-            label = str(evt["value"]).replace("[SEQ] ", "")
-            ax.axvline(t, color="black", linestyle="--", linewidth=0.9, alpha=0.7)
-            ax.text(t, 0.98, label, transform=ax.get_xaxis_transform(), rotation=90, va="top", ha="right", fontsize=7, alpha=0.85)
-
-    ax.set_xlabel("Time since sequence start [s]")
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
-    ax.grid(True)
-    ax.legend()
-    fig.tight_layout()
-    plt.show()
 ```
 
 ```{python}
@@ -165,6 +113,24 @@ combined_seq_times.append((start, end, start_buf, end_buf))
 
 # Get other events within firing sequnces
 events_in_window = seq_df[(seq_df["time"] >= start) & (seq_df["time"] <= end)]
+
+# Get ignition and shutdown times
+ignition_rows = seq_df.loc[seq_df["value"].eq("[SEQ] Ignition"), "time"]
+shutdown_rows = seq_df.loc[seq_df["value"].eq("[SEQ] Initiate Shutdown"), "time"]
+
+if len(ignition_rows) != 1:
+    raise RuntimeError(f"Expected exactly 1 '[SEQ] Ignition', found {len(ignition_rows)}")
+
+if len(shutdown_rows) != 1:
+    raise RuntimeError(f"Expected exactly 1 '[SEQ] Initiate Shutdown', found {len(shutdown_rows)}")
+
+ignition_time = ignition_rows.iloc[0]
+shutdown_time = shutdown_rows.iloc[0]
+
+buffer_ignition = relative_buffer_time * (shutdown_time - ignition_time)
+start_buf_ignition = ignition_time - buffer_ignition
+end_buf_ignition = shutdown_time + buffer_ignition
+
 ```
 
 
@@ -203,4 +169,24 @@ for start, end, start_buf, end_buf in combined_seq_times:
                 events=events_in_window,
                 x0_time=start
             )
+```
+
+```{python}
+#| echo: false
+
+# Plot total massflow
+df_mf = get_massflows(client, BUCKET, mission_id)
+
+plot_total_massflow(df_mf, 
+                time_range=(start_buf, end_buf),
+                highlight_range=(start, end),
+                events=events_in_window,
+                x0_time=start)
+
+# Plot equivalence ration between ignition and shutdown
+plot_equivalence_ratio(df_mf, 
+                time_range=(start_buf_ignition, end_buf_ignition),
+                highlight_range=(ignition_time, shutdown_time),                
+                x0_time=ignition_time)
+
 ```
