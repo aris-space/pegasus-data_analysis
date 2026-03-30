@@ -26,7 +26,7 @@ import pandas as pd
 from IPython.display import Markdown, display
 
 from src.db import connect, get_series_by_subsystem, get_console_messages, get_massflows #, get_metadata
-from src.plotting_functions import plot_by_sensor, plot_total_massflow, plot_equivalence_ratio
+from src.plotting_functions import plot_by_sensor, plot_total_massflow, plot_equivalence_ratio, plot_mass_flux
 
 import sys
 print(sys.executable)
@@ -133,44 +133,6 @@ end_buf_ignition = shutdown_time + buffer_ignition
 
 ```
 
-
-```{python}
-#| echo: false
-
-# Plot only the time interval of buffered sequence and indicate the sequence time interval
-for start, end, start_buf, end_buf in combined_seq_times:
-    for i, subsystem in enumerate(SUBSYSTEMS):
-        # Prüfe ob dieses Subsystem irgendwelche Daten hat
-        has_data = False
-        subsystem_data = {}
-        for cat_name, (measurement, ylabel) in CATEGORIES:
-            df = get_series_by_subsystem(client, BUCKET, measurement, mission_id, subsystem)
-            subsystem_data[cat_name] = (df, ylabel)
-            if not df.empty:
-                has_data = True
-        
-        if not has_data:
-            continue  # Subsystem komplett überspringen
-        
-        # für jedes Subsystem eine neue Seite anfangen
-        if i > 0:
-            display(Markdown(r"\newpage"))
-        display(Markdown(f"# Subsystem: {subsystem}"))
-        for cat_name, (df, ylabel) in subsystem_data.items():
-            if df.empty:
-                continue
-            display(Markdown(f"## {cat_name}"))
-            plot_by_sensor(
-                df,
-                f"{subsystem} – {cat_name}",
-                ylabel,
-                time_range=(start_buf, end_buf),
-                highlight_range=(start, end),
-                events=events_in_window,
-                x0_time=start
-            )
-```
-
 ```{python}
 #| echo: false
 
@@ -189,4 +151,48 @@ plot_equivalence_ratio(df_mf,
                 highlight_range=(ignition_time, shutdown_time),                
                 x0_time=ignition_time)
 
+# Plot Mass Flux
+plot_mass_flux(df_mf, 
+                time_range=(start_buf, end_buf),
+                highlight_range=(start, end),
+                events=events_in_window,
+                x0_time=start)
+
+```
+
+```{python}
+#| echo: false
+
+# # Plot only the time interval of buffered sequence and indicate the sequence time interval
+# for start, end, start_buf, end_buf in combined_seq_times:
+#     for i, subsystem in enumerate(SUBSYSTEMS):
+#         # Prüfe ob dieses Subsystem irgendwelche Daten hat
+#         has_data = False
+#         subsystem_data = {}
+#         for cat_name, (measurement, ylabel) in CATEGORIES:
+#             df = get_series_by_subsystem(client, BUCKET, measurement, mission_id, subsystem)
+#             subsystem_data[cat_name] = (df, ylabel)
+#             if not df.empty:
+#                 has_data = True
+        
+#         if not has_data:
+#             continue  # Subsystem komplett überspringen
+        
+#         # für jedes Subsystem eine neue Seite anfangen
+#         if i > 0:
+#             display(Markdown(r"\newpage"))
+#         display(Markdown(f"# Subsystem: {subsystem}"))
+#         for cat_name, (df, ylabel) in subsystem_data.items():
+#             if df.empty:
+#                 continue
+#             display(Markdown(f"## {cat_name}"))
+#             plot_by_sensor(
+#                 df,
+#                 f"{subsystem} – {cat_name}",
+#                 ylabel,
+#                 time_range=(start_buf, end_buf),
+#                 highlight_range=(start, end),
+#                 events=events_in_window,
+#                 x0_time=start
+#             )
 ```
