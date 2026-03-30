@@ -56,3 +56,18 @@ from(bucket: "{bucket}")
     if df.empty:
         return df
     return df.rename(columns={"_time": "time", "_value": "value"}).sort_values("time")
+
+# Query engine load cell
+def get_eng_load_cell(client, bucket, mission_id):
+    flux = f'''
+from(bucket: "{bucket}")
+  |> range(start: -7d)
+  |> filter(fn: (r) => r._measurement == "loadcell")
+  |> filter(fn: (r) => r.sensorId == "ENG_THR_LC")
+  |> filter(fn: (r) => r.mission_id == "{mission_id}")  
+  |> keep(columns: ["_time", "_value", "sensorId"])
+'''
+    df = query_df(client, flux)
+    if df.empty:
+        return df
+    return df.rename(columns={"_time": "time", "_value": "value"}).sort_values("time")
