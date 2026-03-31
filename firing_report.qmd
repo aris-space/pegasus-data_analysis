@@ -8,7 +8,7 @@ execute:
   warning: false
   message: false
 params:
-  mission_id: "PEG_ENG1_INJ1_Firing2"
+  mission_id: "PEG_ENG1_INJ1_Firing3"
 ---
 
 ```{python}
@@ -26,7 +26,7 @@ import pandas as pd
 from IPython.display import Markdown, display
 
 from src.db import connect, get_series_by_subsystem, get_console_messages, get_massflows, get_eng_load_cell #, get_metadata
-from src.plotting_functions import plot_by_sensor, plot_total_massflow, plot_equivalence_ratio, plot_mass_flux, plot_isp
+from src.plotting_functions import plot_by_sensor, plot_total_massflow, plot_equivalence_ratio, plot_mass_flux, plot_isp, plot_thrust
 
 import sys
 print(sys.executable)
@@ -47,7 +47,7 @@ client = connect(URL, TOKEN, ORG)
 try:
     mission_id = params["mission_id"]
 except NameError:
-    mission_id = "PEG_ENG1_INJ1_Firing2"  # Fallback für direktes Ausführen
+    mission_id = "PEG_ENG1_INJ1_Firing3"  # Fallback für direktes Ausführen
 
 if not mission_id:
     raise RuntimeError("Pass mission_id via: quarto render report.qmd -P mission_id:FIRING_...")
@@ -153,7 +153,14 @@ plot_equivalence_ratio(df_mf,
                 x0_time=ignition_time)
 
 # Plot Mass Flux
-plot_mass_flux(df_mf, 
+plot_mass_flux(df_mf,                 
+                time_range=(start_buf_ignition, end_buf_ignition),
+                highlight_range=(ignition_time, shutdown_time),                
+                x0_time=ignition_time)
+
+# Plot normalized thrust between ignition and shutdown
+plot_thrust(df_thr,
+                start,
                 time_range=(start_buf_ignition, end_buf_ignition),
                 highlight_range=(ignition_time, shutdown_time),                
                 x0_time=ignition_time)
@@ -161,6 +168,7 @@ plot_mass_flux(df_mf,
 # Plot equivalence ration between ignition and shutdown
 plot_isp(df_mf,
                 df_thr,
+                start,
                 time_range=(start_buf_ignition, end_buf_ignition),
                 highlight_range=(ignition_time, shutdown_time),                
                 x0_time=ignition_time)
